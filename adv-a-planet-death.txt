@@ -1,0 +1,804 @@
+; vars
+; $5D44 contains code for first word
+; $5D45 contains code for second word
+
+
+5DAE: LD HL, $5D95
+5DB1: CALL $67EA
+5DB4: POP HL
+5DB5: CALL $675C
+5DB8: CP $59
+5DBA: CALL Z, $6577
+
+$5DBD CALL $67CB          ;clear display, set available input space for whole line
+      XOR A
+      CP (IX+$00)         ;??
+      JR Z, $5E0B
+      CP (IX+$03)
+      JR Z, $5DCE
+      DEC (IX+$03)
+      LD A, ($6E40)       ;location of first item in a list 
+      CP (IX-$01)         ;compare with current room ?
+      JR Z, $5E0B
+      PUSH HL
+$5DD7 JR $5DF9
+
+
+$5E0B LD DE, $6834        ;base of list of room descriptions ??
+      LD L, (IX-$01)      ;current room index
+      LD H, $00
+      ADD HL, HL
+      ADD HL, DE          ;add index*2, HL points to room descripton address
+      LD E, (HL)          ;read room description address
+      INC HL
+      LD D, (HL)
+      EX DE, HL
+      CALL $67EA          ;print room description
+      LD (IX-$02), $00    ;a flag that we have already printed "I can also see" message before a first item
+      LD HL, $6E40        ;base of list of item's locations
+      LD C, $00           ;item index
+;loop to scan through locations of all items, comparing their locations against index of current room
+;if item is located in current room, print it's name
+$5E25 LD A, (HL)          ;get item location/status
+      CP $FF              ;check end of list marker
+      JR Z, $5E6B         ;break from loop if end of list
+      CP (IX-$01)         ;compare item's location with current room index
+      JR NZ, $5E67        ;skip if item is not in current room
+      XOR A
+      CP (IX-$02)         ;check if we have already printed "I can also see" message
+      JR NZ, $5E54        ;go if yes, we have printed
+      PUSH HL
+$5E36 JR $5E4A            ;jump over a message
+
+;$5E38 DEFM "I CAN ALSO SEE"
+
+$5E4A LD HL, $5E38        ;address of "I can also see" message
+      CALL $67EA          ;print it
+      POP HL
+      INC (IX-$02)        ;mark that we have printed that message
+;we get here if item from reg C is in current location, so we should print item's name
+$5E54 PUSH HL
+      LD HL, $6E5D        ;base of list of item's names
+      LD B, $00
+      ADD HL, BC
+      ADD HL, BC          ;add item index twice, since item name pointers are 2-byte. Now HL points to address of item's name
+      LD E, (HL)          ;read item name address
+      INC HL
+      LD D, (HL)
+      EX DE, HL           ;now HL contains item's name address
+      CALL $67EA          ;print item
+      CALL $67C3          ;print "enter"
+      POP HL
+      INC HL              ;move to location of next item
+      INC C               ;increment item index
+$5E69 JR $5E25            ;back to loop
+
+
+;we get here before reading user's input
+$5E6B LD HL, $7EC9
+$5E6E JP $5F48
+
+
+;main loop
+$5E9B LD HL, $5E86
+      CALL $67EA
+      CALL $60E1          ;read user command
+      LD (IX-$08), $00    ;reg IX is $5D48
+      CALL $6525          ;parse a first word
+      LD ($5D44), A       ;store a code for a word here
+      CP $FF              ;check if word is known, $FF means "unknown"
+      JR NZ, $5EEC
+      LD A, (HL)          ;get next character
+      CP $0D              ;check if it is "enter"
+      JR Z, $5EBA
+      OR A                ;check if char is 00 (end of input)
+      JR NZ, $5ED9        ;go if no
+$5EBA PUSH HL             ;we get here if we have end of input
+      JR $5ED0
+
+
+5ED9: LD A, (HL)
+5EDA: CP $20
+5EDC: JR NZ, $5EE1
+5EDE: INC HL
+5EDF: JR $5EA8
+5EE1: CP $00
+5EE3: JR Z, $5EBA
+5EE5: CP $0D
+5EE7: JR Z, $5EBA
+5EE9: INC HL
+5EEA: JR $5ED9
+
+
+;we get here if first word was recognized
+$5EEC LD (IX-$03), $FF     ;??
+;discard remaining characters in input word
+$5EF0 LD A, (HL)           ;get next char
+      CP $20               ;check if it is "space"
+      JR Z, $5F02          ;go if yes
+       CP $00               ;check if it is "end of input"
+      JP Z, $5F1D
+      CP $0D               ;check if it is "enter"
+      JP Z, $5F1D
+      INC HL               ;move to next character
+$5F00 JR $5EF0             ;loop
+
+;process remaining user input: skip unknown words, try to find just one known word
+$5F02 INC HL
+      CALL $6525          ;parse next word
+      LD ($5D45), A       ;store code for second word here
+      CP $FF              ;check if it is known ($FF means unknown)
+      JR NZ, $5F1D        ;go if word is known
+;skip remaining chars of second word
+$5F0D LD A, (HL)          ;get next char
+      CP $00              ;check if it is "end of input"
+      JR Z, $5F1D
+      CP $0D              ;check if "enter"
+      JR Z, $5F1D
+      CP $20              ;check if "space"
+      JR Z, $5F02         ;if yes, then loop to try to parse next word
+      INC HL              ;move to next char, thus skipping a "space"
+$5F1B JR $5F0D            ;loop
+
+;we get here if either we have one more recognized word, or got to end of input
+$5F1D LD D, $00
+      LD E, (IX-$01)      ;reg IX has $5D48, reg E is a room number
+      LD HL, $7894        ;base of list of room-transition scripts
+      ADD HL, DE
+      ADD HL, DE          ;add offset twice
+      LD E, (HL)          ;read two bytes
+      INC HL
+      LD D, (HL)          
+      EX DE, HL           ;now those two bytes are in HL, points to room transitions
+
+$5F2B LD A, (HL)          ;get code for a first word
+      CP $FF              ;check if the end of script
+      JR Z, $5F41         ; go if yes
+      CP (IX-$04)         ; compare with user's first word (direction)
+      JR NZ, $5F3D        ; go if don't match
+      INC HL
+      LD A, (HL)          ;get next code from a script entry 
+      LD (IX-$01), A      ;put here (a new current room)
+      JP $5DBD
+$5F3D INC HL              ;skip second code from script entry
+      INC HL
+$5F3F JR $5F2B            ;loop
+
+;we get here if first word of user's input was not found in a script for current room
+$5F41 LD HL, $746D        ;base of global script
+      LD (IX-$06), $00    ;
+;we can get here in several ways: either from code above, or from $5E6E (in this case, base will be $7EC9)
+;loop, scan through script entries
+$5F48 LD A, (HL)
+      OR A
+5F4A: JR NZ, $5FC0
+5F4C: CP (IX-$06)
+5F4F: JP NZ, $5E6B
+5F52: LD A, (IX-$04)
+5F55: CP $0D
+5F57: JR C, $5F95
+5F59: LD A, (IX-$08)
+5F5C: OR A
+5F5D: JR NZ, $5F74
+5F5F: PUSH HL
+5F60: JR $5F6A
+5F62: LD C, C
+5F63: JR NZ, $5FA8
+5F65: LD B, C
+5F66: LD C, (HL)
+5F67: LD D, H
+5F68: DEC C
+5F69: NOP
+5F6A: LD HL, $5F62
+5F6D: CALL $67EA
+5F70: POP HL
+5F71: JP $5E6B
+5F74: PUSH HL
+5F75: JR $5F8B
+
+$5FC0 CP $FF           ;check of "don't check user input" flag
+      JR Z, $5FD0      ;skip word checking if yes
+      CP (IX-$04)      ;compare with user's first word
+      JR Z, $5FD0      ;go if match
+$5FC9 LD DE, $0006     ;size of entry of global script
+      ADD HL, DE       ;move to next entry
+$5FCD JP $5F48         ;loop
+;we get here if first byte of script matches first word of user's input
+$5FD0 INC HL
+      LD A, (HL)       ;get second byte of script
+      CP $FF           ;special flag that we ignore a second word of user input
+      JR Z, $5FDE      
+      CP (IX-$03)      ;check user's second word
+      JR Z, $5FDE
+      DEC HL           ;move back one byte
+$5FDC JR $5FC9         ;get back to loop
+;we get here if either both words of script entry match user's input, or if first word matches one-word script entry
+$5FDE INC HL           ;move to +2 byte
+      LD C, (HL)
+      INC HL
+      LD B, (HL)       ;now BC contain two bytes from +2 offset of script entry, pointer to list of checks for this script entry to apply. 
+      INC HL           ;make HL to point to +4 byte of script entry
+$5FE3 LD A, (BC)       ;get value pointed by BC
+      CP $FF           ;end-of-list marker
+      JP Z, $60AF      ;go if end of list
+      LD ($5D43), A    ;store checker index here
+      INC BC           ;increment BC pointer
+      LD A, (BC)       ;read mem value
+      LD ($5D41), A    ;?? store that value here ??
+      PUSH HL
+      LD HL, $609D     ;base of list of checkers
+      LD D, $00
+      LD E, (IX-$05)   ;(IX-05) = $5D43, read checker index into E
+      ADD HL, DE
+      ADD HL, DE       ;add checker index twice, since each checker's address takes 2 bytes
+      LD E, (HL)       
+      INC HL
+      LD D, (HL)       ;read checker address into DE
+      EX DE, HL
+$6000 JP (HL)          ;jump into checker
+
+;checker for index #0:
+;checks if current room matches provided checker parameter in ($5D41)
+$6001 LD A, ($5D41)    ;get checker param (room number)
+      CP (IX-$01)      ;(IX-1) = $5D47  compare with room number
+$6007 JR Z, $6063
+
+;we get here if check doesn't pass
+$6009 POP HL
+      INC HL
+      INC HL
+      LD (IX-$08), $01 ;?? store flag that check did not pass ??
+$6010 JP $5F48
+
+;checker for index #1:
+;"player has a specific item in inventory/location" checker
+;param in $5D41 is an item index
+$6013 LD HL, $6E40     ;base of list of item locations
+      LD D, $00
+      LD E, (IX-$07)   ;get checker param (item index )
+      ADD HL, DE       ;add 
+      LD A, (HL)       ;get item location
+      CP (IX-$01)      ;compare with current room
+      JR Z, $6063      ;go if yes, check has passed
+      CP $FD           ;check if it is in player's inventory ($FD and $FE)
+      JR NC, $6063     ;go if yes, check has passed
+$6026 JR $6009         ;go if not, check has not passed
+
+;checker for index #2
+;"a random generator returned 'true'" checker
+$6028 LD A, R          ;get random value from reg R
+      SUB (IX-$07)     ;substract a checker parameter
+      JR C, $6063      ;if random value was lower than parameter, then check has passed
+$602F JR $6009         ;otherwise check has not passed
+
+;checker with index #3
+;"player doesn't have a specific item in inventory/location" checker
+$6031 LD HL, $6E40     ;base of item locations
+      LD D, $00
+      LD E, (IX-$07)   ;get checker param (item index )
+      ADD HL, DE
+      LD A, (HL)       ;get item's location
+      CP (IX-$01)      ;check if item is in this room
+      JR Z, $6009      ;check has not passed
+      CP $FD           ;check if item is in inventory or worn
+      JR NC, $6009     ;check has not passed
+$6044 JR $6063         ;check has passed
+
+;checker with index #4
+;checks that item is "worn" (boots, gloves)
+$6046 LD HL, $6E40     ;base of list of item's locations
+      LD D, $00
+      LD E, (IX-$07)   ;checker parameter (item index)
+      ADD HL, DE       ;add, so now HL points to location of specified item
+      LD A, (HL)       ;get location/status
+      CP $FD           ;check if "worn" status
+      JR Z, $6063      ;chack has passed
+$6054 JR $6009         ;check has not passed
+
+;checker with index #5
+;?? checks if global flag is not 0
+$6056 LD HL, $5D48       ;some base ?? base of flags/globalvars ??
+      LD D, $00
+      LD E, (IX-$07)     ;checker parameter
+      ADD HL, DE
+      LD A, (HL)         ;get global var/flag
+      OR A               ;check if 0
+$6061 JR Z, $6009        ;check has not passed if value is 0
+
+;we get here if check has passed
+$6063 POP HL
+      INC BC
+$6065 JP $5FE3
+
+;checker with index #6
+$6068 INC BC
+      LD A, (BC)         ;read val
+      LD HL, $5D48       ; some base ?? base of global vars/flags ??
+      LD D, $00
+      LD E, (IX-$07)     ;checker parameter (global var index)
+      ADD HL, DE         ;add index to base
+      CP (HL)            ;compare value from (BC) against indexed
+      JR NZ, $6009       ;check has not passed if not match
+$6076 JR $6063           ;check has passed if match
+
+;checker with index #7
+;?? checks if global flag is 0
+$6078 LD HL, $5D48
+      LD D, $00
+      LD E, (IX-$07)
+      ADD HL, DE
+      LD A, (HL)
+      OR A
+      JP NZ, $6009       ;check has not passed if value is not 0
+$6086 JR $6063           ;check has passed
+
+;checker for index #8:
+;"player has a specific item in inventory" checker
+;param in $5D41 is an item index
+$6088 LD HL, $6E40       ;base of list of item locations
+      LD D, $00
+      LD E, (IX-$07)     ;checker parameter (item index)
+      ADD HL, DE
+      LD A, (HL)         ;get item's location/status
+      CP $FE             ;item in inventory
+      JR Z, $6063        ;check has passed
+      CP $FD             ;item is worn
+      JR Z, $6063        ;check has passed
+$609A JP $6009           ;check has not passed
+
+; at $609D there is a list of pointers to checkers:
+; $609D DEFW $6001
+;            $6013
+;            $6028
+;            $6031
+;            $6046
+;            $6056
+;            $6068
+;            $6078
+;            $6088
+
+;we get here if all checks have passed for script entry
+;reg HL points to +4 byte of script entry
+$60AF LD C, (HL)         ;read two bytes from +4 location of script entry, example value in BC is $73E8
+      INC HL
+      LD B, (HL)
+      INC HL
+      LD (IX-$06), $01   ;IX-$06 = $5D42
+;loop to run script handlers
+;each handler is encoded as 2 bytes: first byte is an index of handler code, and second byte is a handler parameter
+$60B7 LD A, (BC)         ;read first byte, a handler index
+      CP $FF             ;check end marker
+$60BA JP Z, $5F48
+      LD ($5D43), A      ;store index of handler here
+      INC BC             ;move pointer to next byte
+      LD A, (BC)         ;read next byte (?? parameter to handler ??)
+      LD ($5D41), A      ;store here
+      PUSH HL
+      PUSH BC
+      LD HL, $6108       ;base of list of handlers
+      LD D, $00
+      LD E, (IX-$05)     ;IX-$05 =  $5D43, read index of handler into E
+      ADD HL, DE
+      ADD HL, DE         ;add index twice, since list entry is 2 bytes
+      LD E, (HL) 
+      INC HL
+      LD D, (HL)         ;get 2-byte address of handler. Example value $6345
+      EX DE, HL
+$60D5 JP (HL)            ;run handler
+
+;get location of item from $5D41, return location in reg A, and pointer to location in HL
+$60D6 LD HL, $6E40       ;base of list of item's locations
+      LD B, $00
+      LD C, (IX-$07)     ;index of item from $5D41
+      ADD HL, BC         ;add, so HL points to item
+      LD A, (HL)         ;get item's location
+$60E0 RET
+
+60E1: LD HL, $60E7
+60E4: JP $678D
+
+;handler with index #0
+;"print intentory items" handler
+$613A PUSH HL
+$613B JR $615C           ;jump over a message bytes
+
+;$613D DEFM "I HAVE WITH ME THE FOLLOWING:"
+;print inventory items
+$615C LD HL, $613D        ;address of message "I have with me..."
+      CALL $67EA          ;print that message
+      POP HL
+      LD (IX-$02), $00    ;by default we have nothing in inventory
+      LD HL, $6E40        ;base of list of item's locations
+$616A LD C, $00           ;item index
+;loop to scan through all items, comparing their location/status against special values $FD (item is worn) and $FE (item is in inventory)
+;if item is worn or in inventory, it's name will be printed
+$616C LD A, (HL)          ;get item's location/status
+      CP $FF              ;end of list marker
+      JR Z, $61B3         ;go if reached end of list
+      CP $FD              ;check if item is worn or in inventory
+      JR C, $61AF         ;go if not
+      LD (IX-$02), $01    ;mark that we have something in inventory
+      PUSH HL
+      LD HL, $6E5D        ;base of list of item names
+      LD B, $00
+      ADD HL, BC
+      ADD HL, BC          ;add item index twice (since each list entry is 2-byte)
+      LD E, (HL)          ;read 2-byte entry (name of item) into DE
+      INC HL
+      LD D, (HL)
+      EX DE, HL
+      CALL $67EA          ;print item's name
+      POP HL
+      LD A, (HL)          ;read item's location/status again
+      CP $FD              ;check if item is worn
+      JR NZ, $61AC        ;skip if not
+      PUSH HL
+      LD HL, $6198        ;address of "... which I'm wearing" message
+      CALL $67EA          ;print this message
+      POP HL
+$6196 JR $61AC            ;jump over text of message
+
+;$6198 DEFM "WHICH I AM WEARING"
+
+$61AC CALL $67C3         ;print "enter" character
+      INC HL             ;move to next item
+      INC C              ;increment item index
+$61B1 JR $616C           ;back to loop
+;we get here if we have reached end of list of items
+$61B3 XOR A
+      CP (IX-$02)        ;check that we had found any items in inventory
+      JP NZ, $64C4       ;go if yes, we had
+      PUSH HL
+$61BB JR $61CD           ;go if inventory is empty, jump over the message bytes
+
+;$61BD DEFM "NOTHING AT ALL"
+
+$61CD LD HL, $61BD       ;address of "NOTHING AT ALL" message
+      CALL $67EA         ;print a message
+      POP HL 
+$61D4 JP $64C4
+
+;handler with index #1
+$61D7 CALL $60D6        ;get item's location
+      CP $FD            ;check if item is worn
+      JR Z, $6200       ;go if yes
+      PUSH HL
+$61DF JR $61F6          ;go to print "I'm not wearing it" message
+
+;print "I'm not wearing it" message
+$61F6 LD HL, $61E1      ;address of message "I'm not wearing it"
+      CALL $67EA        ;print a message
+      POP HL
+$61FD JP $64C4
+
+$6200 LD A, (IX+$01)
+      CP $06
+      JR NZ, $622F
+      PUSH HL
+$6208 JR $6225
+
+;handler for index #2
+;"get item"
+$6237 LD A, (IX+$01)    ;IX+01 = $5D49    ???  inventory size ??
+      CP $06            ;check against max size
+      JR NZ, $6262      ;go if we have a place in inventory
+      PUSH HL
+      JR $6258          ;go if we don't have place in inventory
+
+;we get here if we don't have a free place in inventory
+$6258 LD HL, $6241     ;pointer to message that inventory is full
+      CALL $67EA       ;print a message
+      POP HL
+$625F JP $64C4
+;put item into inventory
+$6262 CALL $60D6       ;get location of item from $5D41 into reg A, and reg HL pointed to it
+      CP (IX-$01)      ;compare with index of current room
+      JR NZ, $6272     ;go if not
+      LD (HL), $FE     ;if item is in current room, set location "in inventory"
+      INC (IX+$01)     ;increment inventory size
+      JP $6382         ;return to handlers loop
+$6272 CP $FD
+      JR Z, $6298
+      CP $FE
+      JR Z, $6298       
+      LD HL, $6283      ;pointer to a message 
+      CALL $67EA        ;print a message
+$6280 JP $64C4
+
+
+;handler which prints a text. Index of text to print is in $5D41
+$6345 LD HL, $7928      ;base of list of output texts
+      LD B, $00
+      LD C, (IX-$07)    ;IX-$07 = $5D41, reg C contains index of text to print
+      ADD HL, BC
+      ADD HL, BC        ;add index twice, so we get to 2-byte pointer to start of text
+      LD E, (HL)        ;now read 2-byte pointer to text
+      INC HL
+      LD D, (HL)
+      EX DE, HL
+      CALL $67EA        ;print text
+$6356 JR $6382
+
+
+$635D POP BC
+      POP HL
+      JP $5E6B
+
+      LD A, (IX-$07)
+      LD (IX-$01), A
+$6368 JR $6382
+
+;this code is executed after each handler
+$6382 POP BC
+      POP HL
+      INC BC            ;move to next handler
+$6385 JP $60B7          ;return to loop
+
+;handler #13
+;prints "ok.." message
+$6395 PUSH HL
+      JR $639E         ;jump over content of message
+;$6398 DEFM "OK.."
+;print "ok.." message
+$639E LD HL, $6398     ;address of "ok.." message
+      CALL $67EA       ;print it
+      POP HL
+$63A5 JP $64C4
+
+
+;"create an item at current room" handler.
+;item index is specified by $5D41
+$64A6 LD HL, $6E40     ;base of item locations
+      LD B, $00
+      LD C, (IX-$07)   ;get handler param (item index)
+      ADD HL, BC       ;add index to base, so HL points to item location
+      LD A, (IX-$01)   ;get current room index
+      LD (HL), A       ;store current room as a location for item
+$64B3 JP $6382
+
+64B6: LD HL, $6E40
+64B9: LD B, $00
+64BB: LD C, (IX-$07)
+64BE: ADD HL, BC
+64BF: LD (HL), $FC
+64C1: JP $6382
+
+
+;we jump here from any final handler (no more handlers are expected)
+$64C4 POP BC
+      POP HL
+$64C6 JP $5E6B        ;jump to process another set of scripts
+
+; Parse a word from user's input. 
+; User's input is pointed by reg HL
+; Result is either a word index/code in reg A, or $FF if word is unknown
+;
+$6525 PUSH HL
+      LD HL, $2020        ;these are char codes for 2 "space" chars
+      LD ($5D66), HL      ;use code for "space" to clear word buffer, first 2 bytes
+      LD ($5D68), HL      ;use code for "space" to clear word buffer, next 2 bytes
+      POP HL
+
+;read one word into buffer
+$6530 LD DE, $5D66        ;start of word buffer
+$6533 LD B, $04           ;how many initial chars will get for word
+$6535 LD A, (HL)          ;get next char code from user input buffer
+      CP $20              ;check if "space"
+      JR Z, $6547         ;go if yes
+      CP $00              ;check if "end of buffer"
+      JR Z, $6547         ;go if yes
+      CP $0D              ;check if "enter"
+      JR Z, $6547         ;go if yes
+      LD (DE), A          ;store
+      INC HL
+      INC DE
+$6545 DJNZ $6535          ;loop
+
+;outer loop, try to find a word in words table,return word's index in reg A
+;words table consists of 5-byte entries, with 4 bytes are word's first 4 chars, and byte 5 is word's index/code
+;for example, words "GOLD" and "COIN" both have index/code $16
+$6547 PUSH HL
+      LD HL, $7090        ;start of known words table
+      LD A, $FF           ;this value indicates "word not found", which will be default result
+      PUSH AF             ;store default result
+
+;check if word in word buffer matches current entry of words table
+$654E LD (IX-$02), $00    ;this global war stores word matching status, 0 is "true", which we set by default
+      LD B, $04           ;length of words
+      LD DE, $5D66        ;start of input word buffer
+;inner loop, by word's characters
+$6557 LD A, (HL)          ;get character from current entry of words table
+      CP $FF              ;? end of table marker ?
+      JR Z, $6571         ;go if reached end of table
+      LD A, (DE)          ;get character from input buffer
+      CP (HL)             ;compare with character of current entry of words table
+$655E JR Z, $6564         ;go if they match
+      LD (IX-$02), $01    ;mark that word is not matched
+$6564 INC HL              ;move to next char in words table entry
+      INC DE              ;move to next char in input buffer
+$6566 DJNZ $6557          ;loop
+      XOR A
+      CP (IX-$02)         ;check if words table entry matches
+$656C JR NZ, $6574        
+      POP AF              ;if word was found, discard default result which was stored on stack
+      LD A, (HL)          ;get word index/code from byte 5
+      PUSH AF
+$6571 POP AF
+      POP HL
+$6573 RET
+$6574 INC HL             ;if words table entry was not matched, just move to next entry
+$6575 JR $654E           ;back into the loop
+
+
+;print a character from reg A
+$6742 PUSH IX
+      PUSH HL
+      PUSH DE
+      PUSH BC
+      PUSH AF
+      LD HL, $5C8C
+      LD (HL), $FF       ;???
+      RST $10            ;print a char
+      POP AF
+      PUSH AF
+      CP $0D             ;check if it was an "ENTER" char
+      CALL Z, $67DA      ;?? go if yes ??
+      POP AF
+      POP BC
+      POP DE
+      POP HL
+      POP IX
+$675B RET
+
+;read a character from input, blocking until a char will be available
+;value of IY is $5C3A
+$675C LD (IY-$32), $00   ; clear last char code
+$6760 LD A, (IY-$32)     ; read a char code, set by interrupt handler
+      OR A               ; check if non 0
+$6764:JR Z, $6760        ; loop while it is not 0
+      CP $90             ; check if it is a lowercase character ($60-$90)
+      JR NC, $6760       ; return to loop if not
+      CP $0C             ; special code: "ENTER" key
+      JR C, $6760
+      CP $60
+      RET C
+      SUB $20            ; correction, to make uppercase letters
+$6773 RET
+
+6774: PUSH DE
+6775: LD D, A
+6776: LD A, $7F
+6778: IN A, ($FE)
+677A: RRA
+677B: JR C, $678A
+677D: LD A, $FE
+677F: IN A, ($FE)
+6781: RRA
+6782: JR C, $678A
+6784: LD A, $01
+6786: OR A
+6787: LD A, D
+6788: POP DE
+6789: RET
+
+678A: XOR A
+678B: JR $6787
+
+;read a command from user, into a buffer pointed by HL
+;
+$678D PUSH HL
+      LD B, $20       ; how many chars till the end of screen line
+$6790 LD (HL), $00    ; ? end of line indicator ?
+      CALL $675C      ; read a char
+      CP $0C          ; check if "backspace" key 
+      JR NZ, $67B1    ; if not, go
+      LD A, $20       ; 
+      CP B            ; check horizontal screen position, if we are at the left side of screen
+$679C JR Z, $6790     ; go if yes, since nothing to delete
+      INC B           ; increment counter of remaining chars till right side of screen 
+      DEC HL          ; move back buffer pointer
+$67A0 LD A, $08       ; special char code "move left"
+      CALL $6742      ; "print" this char code, moving current screen position to one char left
+      LD A, $20       ; char code for "space"
+      CALL $6742      ; "print" this char code, erasing last char
+      LD A, $08       ; again special char code "move left"
+      CALL $6742      ; print it
+$67AF JR $6790
+
+$67B1 CALL $6742      ; print/echo a char
+      CP $0D          ; check if it was "ENTER"
+      JR Z, $67C1     ; go if yes
+      INC B          
+      DEC B           ; check if remaining available chars on line is 0
+$67BA JR Z, $67A0     ; if 0, then delete last printed char
+      DEC B           ; decrement counter of remaining available chars on line
+      LD (HL), A      ; store input character in buffer
+      INC HL          ; move buffer pointer
+$67BF JR $6790
+$67C1 POP HL
+$67C2 RET
+
+;print "enter"
+$67C3 PUSH AF
+      LD A, $0D
+      CALL $6742
+      POP AF
+$67CA RET
+
+
+$67CB PUSH HL
+      PUSH DE
+      PUSH BC
+      PUSH AF
+      CALL $0DAF     ;clear display (standard ROM subroutine)
+      CALL $67DA     ;set available input space as "whole line"
+      POP AF
+      POP BC
+      POP DE
+      POP HL
+$67D9 RET
+;set available input space as "whole line" ($20 chars)
+$67DA LD A, $20      ;size of full line
+      LD ($67E9), A  ;how many chars remain available for user input
+$67DF RET
+
+;print a "space"
+$67E0 PUSH AF
+      LD A, $20
+      CALL $6742
+      POP AF
+      DEC A
+$67E8 RET
+
+;$67E9 (1 byte) ?? some var, how many chars remain on line for printing ??
+
+;print a text pointed by reg HL
+;if word doesn't fit into a line, it will be printed on next line
+
+$67EA NOP
+$67EB LD A, (HL)         ;get char
+      INC HL
+      OR A               ;check if "end of text"
+      RET Z              ;exit if yes
+      CP $0D             ;check if "enter"
+      CALL Z, $67C3      ;call this to move text position to next line
+      JR Z, $67EB        ;loop to next char
+      CP $20             ;check if "space"
+      JR Z, $67EB        ;skip it, just moving to next char
+;calculate word's length into reg B
+      DEC HL
+      PUSH HL             ;store pointer to start of word
+      LD B, $00           ;word's length initial value
+$67FE LD A, (HL)          ;get char
+      CP $20              ;check if "space"
+      JR Z, $680E         ;go if yes, end of word
+      OR A                ;check if 0 ("end of text")
+      JR Z, $680E
+      CP $0D              ;check if "enter"/"to next line"
+      JR Z, $680E
+      INC B               ;increment word's length
+      INC HL              ;move to next char
+$680C JR $67FE            ;loop
+;at this point word's length in reg BC
+$680E LD A, ($67E9)       ;?? some var, how many chars remain on line for printing ??
+      CP B                ;compare with length of word
+      CALL C, $67C3       ;call this proc to move to next line ??
+      POP HL              ;restore pointer to the word
+;loop to print word char by char
+$6816 LD A, (HL)          ;get char
+      CP $20              ;check if "space"
+      JR Z, $6828
+      OR A
+      JR Z, $6828
+      CP $0D
+      JR Z, $6828
+      CALL $6742         ;print a char
+      INC HL             ;move to next char
+$6826 JR $6816           ;loop
+;we have just finished printing a word
+$6828 LD A, ($67E9)      ;how many chars remain till the end of line
+      SUB B              ;reduce by word's length
+$682C CALL NZ, $67E0     ;print "space", if it is not an end of screen line
+      LD ($67E9), A      ;update remaining chars on line
+$6832 JR $67EA           ;print loop
+
